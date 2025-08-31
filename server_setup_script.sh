@@ -48,7 +48,7 @@ optimize_machine() {
 
 	# Tuned Profiles
 	sudo systemctl enable --now tuned
-	sudo tuned-adm profile latency-performance
+	sudo tuned-adm profile throughput-performance
 	
 	# Increase file descriptors ---
 	sudo tee /etc/security/limits.d/minecraft.conf >/dev/null <<'EOF'
@@ -111,7 +111,7 @@ create_swap_space() {
             sudo mkswap ${SWAP_FILE}
         fi
         sudo swapon ${SWAP_FILE}
-        if ! grep -q "${SWAP_FILE}" /etc/fstab; then
+		if ! grep -qE "^\s*${SWAP_FILE}\s" /etc/fstab; then
             echo "${SWAP_FILE} none swap sw 0 0" | sudo tee -a /etc/fstab
         fi
         sudo sysctl vm.swappiness=${SWAPPINESS}
@@ -141,6 +141,7 @@ IDLE_FILE="\${SERVER_DIRECTORY}/scripts/minecraft_idle_minutes"
 IDLE_MINUTES_SHUTDOWN=5
 MAX_ERROR_RETRIES=5
 RETRY_INTERVAL=30
+TIME_LOG_FILE="\${SERVER_DIRECTORY}/scripts/minecraft_time_log"
 EOF
 
 	sudo chown root:minecraft-group /etc/minecraft.env
@@ -157,7 +158,11 @@ create_dir() {
 	sudo chown -R :minecraft-group ${SERVER_DIRECTORY}
 	
 	ALT_DIRECTORY="${SERVER_DIRECTORY/\/opt/\/home}"
-	ln -sfn ${SERVER_DIRECTORY} ${ALT_DIRECTORY}
+	if [ ! -e "${ALT_DIRECTORY}" ]; then
+        ln -s ${SERVER_DIRECTORY} ${ALT_DIRECTORY}
+    else
+        : # Symlink already exists, do nothing
+    fi
 	
 	cd ${SERVER_DIRECTORY}
 	mkdir data
@@ -310,6 +315,8 @@ else
 	MINUTES=0
 fi
 
+# Check if server process is running
+RCON_RESPONSE=""
 if [ -z "\$(pgrep -u minecraft -f \${SERVER_JAR})" ]; then
     # Reset if accumulating idle minutes
 	if [ \${MINUTES} -gt 0 ]; then
@@ -320,12 +327,12 @@ if [ -z "\$(pgrep -u minecraft -f \${SERVER_JAR})" ]; then
 
 else
 	# RCON Query player list
-	PLAYER_LIST=\$(timeout 30 mcrcon -H 127.0.0.1 -P \${RCON_PORT} -p "\${RCON_PASSWORD}" list 2>/dev/null)
-	logger -t minecraft-idle-check "Player list: \${PLAYER_LIST}"
+	RCON_RESPONSE=\$(timeout 30 mcrcon -H 127.0.0.1 -P \${RCON_PORT} -p "\${RCON_PASSWORD}" list 2>/dev/null)
+	logger -t minecraft-idle-check "Player list: \${RCON_RESPONSE}"
 fi
 
 # Check if RCON command failed
-if [ -z "\${PLAYER_LIST}" ]; then
+if [ -z "\${RCON_RESPONSE}" ]; then
 	# Reset if accumulating idle minutes
 	if [ \${MINUTES} -gt 0 ]; then
 		MINUTES=0
@@ -334,7 +341,7 @@ if [ -z "\${PLAYER_LIST}" ]; then
 	logger -t minecraft-idle-check "Hang check: RCON failed or returned empty. \${MINUTES} / -\${IDLE_MINUTES_SHUTDOWN} minute/s before shutdown."
 	
 # Check number of players
-elif echo "\${PLAYER_LIST}" | grep -qE "There (are|is) 0 of a max"; then
+elif echo "\${RCON_RESPONSE}" | grep -qE "\\b0 of a max"; then
 	# Reset if accumulating offline minutes
 	if [ \${MINUTES} -lt 0 ]; then
 		MINUTES=0
@@ -346,18 +353,44 @@ elif echo "\${PLAYER_LIST}" | grep -qE "There (are|is) 0 of a max"; then
 else
 	MINUTES=0
 	logger -t minecraft-idle-check "Idle check: Found players. Resetting timer back to \${MINUTES} / \${IDLE_MINUTES_SHUTDOWN} minute/s"
+
+	# Log player play time by accumulating minutes
+	if [ ! -f "\${TIME_LOG_FILE}" ]; then
+		touch "\${TIME_LOG_FILE}"
+	fi
+
+	# Calculate increment based on player count per minute to get fractional time
+	PLAYER_LIST=\$(echo "\${RCON_RESPONSE}" | awk -F: '{if (NF>1) print \$2}' | sed 's/\\x1b\\[[0-9;]*m//g' | tr ', ' '\\n' | grep -v '^\\s*\$')
+	PLAYER_COUNT=\$(echo "\${PLAYER_LIST}" | grep -c .)
+	INCREMENT=\$(awk "BEGIN {printf \\"%.4f\\", 1/\${PLAYER_COUNT}}")
+
+	for PLAYER in \${PLAYER_LIST}; do
+
+		# Get current time (default to 0 if not found)
+		CURRENT_TIME=\$(grep -F "\${PLAYER}:" "\${TIME_LOG_FILE}" | cut -d: -f2)
+		if [ -z "\${CURRENT_TIME}" ]; then
+			CURRENT_TIME=0
+		fi
+		NEW_TIME=\$(awk "BEGIN {printf \\"%.4f\\", \${CURRENT_TIME}+\${INCREMENT}}")
+
+		if grep -qE "^\${PLAYER}:" "\${TIME_LOG_FILE}"; then
+			sed -i "s/^\${PLAYER}:.*/\${PLAYER}:\${NEW_TIME}/" "\${TIME_LOG_FILE}"
+		else
+			echo "\${PLAYER}:\${NEW_TIME}" >> "\${TIME_LOG_FILE}"
+		fi
+	done
 fi
 
 # Check minutes for shutdown
 if [ "\${MINUTES}" -le "-\${IDLE_MINUTES_SHUTDOWN}" ]; then
-	logger -t minecraft-idle-check "Offline check: Shutting down..."
+	logger -t minecraft-idle-check "Offline check: Server down for \${IDLE_MINUTES_SHUTDOWN} minutes. Shutting down..."
 	echo 0 > "\${IDLE_FILE}"
 	rm -f "\${LOCK_FILE}"
 	sudo systemctl stop minecraft.service
 	sudo /bin/systemctl start minecraft-shutdown.service
 	
 elif [ "\${MINUTES}" -ge "\${IDLE_MINUTES_SHUTDOWN}" ]; then
-	logger -t minecraft-idle-check "Idle check: Shutting down..."
+	logger -t minecraft-idle-check "Idle check: No active players for \${IDLE_MINUTES_SHUTDOWN} minutes. Shutting down..."
 	echo 0 > "\${IDLE_FILE}"
 	rm -f "\${LOCK_FILE}"
 	sudo systemctl stop minecraft.service
@@ -377,16 +410,15 @@ give_proper_permissions() {
 	sudo chmod 440 /etc/sudoers.d/minecraft-shutdown
 
 	# Give group permissions
-	sudo setfacl -R -b /opt/minecraft
-	sudo chown -R :minecraft-group /opt/minecraft
-	sudo chmod -R 770 /opt/minecraft
-	sudo setfacl -R -m g:minecraft-group:rwx /opt/minecraft
-	sudo setfacl -R -m d:g:minecraft-group:rwx /opt/minecraft
+	sudo setfacl -R -b ${SERVER_DIRECTORY}
+	sudo chown -R :minecraft-group ${SERVER_DIRECTORY}
+	sudo chmod -R 770 ${SERVER_DIRECTORY}
+	sudo setfacl -R -m g:minecraft-group:rwx ${SERVER_DIRECTORY}
+	sudo setfacl -R -m d:g:minecraft-group:rwx ${SERVER_DIRECTORY}
 
 	# Open firewall ports
-	sudo firewall-cmd --add-port=${SERVER_PORT}/tcp --permanent
-	sudo firewall-cmd --add-port=${RCON_PORT}/tcp --permanent
-	sudo firewall-cmd --runtime-to-permanent
+	sudo firewall-cmd --permanent --add-port=${SERVER_PORT}/tcp
+	sudo firewall-cmd --permanent --add-port=${RCON_PORT}/tcp
 	sudo firewall-cmd --reload
 	sleep 10
 }
@@ -467,6 +499,7 @@ create_shutdown_service() {
 Description=Shutdown the system when Minecraft requests it
 Requires=multi-user.target
 After=multi-user.target
+Conflicts=minecraft.service
 
 [Service]
 Type=oneshot
