@@ -1,0 +1,43 @@
+sudo su - minecraft <command>
+sudo -u minecraft bash -c 'command'
+# Switch to created minecraft user
+
+screen -ls
+# List screens
+
+screen -S/-r minecraft
+# Create and switch to minecraft screen
+# To detatch: Ctrl+A D
+
+screen -S minecraft -X quit
+# Quit screens
+
+./<script>
+# Run script
+
+sudo nano /opt/minecraft/server/scripts/start_script.sh
+# Modify file
+
+sudo systemctl start/stop/status minecraft.service
+# Start / Stop / Show Status of services
+
+sudo systemctl enable/disable minecraft.service
+# Enable/Disable service at startup
+
+sudo systemctl list-units --type=service --state=running
+# List all active services
+
+journalctl -t minecraft-server
+# View service logs
+
+ps aux | grep java
+# Check for java processes
+
+sudo kill -9 <PID>
+# Kill processes
+
+top
+# Check system resource utilization
+
+df -h
+# Check system disk usage
