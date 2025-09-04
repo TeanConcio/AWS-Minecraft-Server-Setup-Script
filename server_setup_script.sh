@@ -18,9 +18,9 @@ create_permission_group() {
 	getent group minecraft-group || sudo groupadd minecraft-group
 	sudo usermod -aG minecraft-group ec2-user
 	sudo usermod -aG minecraft-group minecraft
-	sudo tee /etc/profile.d/minecraft_umask.sh > /dev/null <<EOF
+	sudo tee /etc/profile.d/minecraft_umask.sh > /dev/null <<'EOF'
 # Set umask for users in minecraft-group
-if id -nG "\${USER}" | grep -qw "minecraft-group"; then
+if id -nG "${USER}" | grep -qw "minecraft-group"; then
     umask 007
 fi
 EOF
@@ -55,7 +55,7 @@ optimize_machine() {
 minecraft soft nofile 65535
 minecraft hard nofile 65535
 EOF
-	
+
 	# Network Tuning
 	sudo mkdir -p /etc/sysctl.d
 	sudo tee /etc/sysctl.d/99-minecraft.conf > /dev/null <<'EOF'
@@ -124,24 +124,24 @@ create_swap_space() {
 create_env_file() {
 	# === ENVIRONMENT CONFIGURATION VARIABLES ===
 	
-	sudo tee /etc/minecraft.env > /dev/null <<EOF
+	sudo tee /etc/minecraft.env > /dev/null <<'EOF'
 SERVER_DIRECTORY="/opt/minecraft/server"
 
 MINECRAFTSERVERURL="https://fill-data.papermc.io/v1/objects/234a9b32098100c6fc116664d64e36ccdb58b5b649af0f80bcccb08b0255eaea/paper-1.20.1-196.jar"
 SERVER_JAR="paper-1.20.1-196.jar"
 USE_HARDCODED_RAM=false
 MIN_MAX_RAM="15G"
-SERVER_START_COMMAND='java -Dlog4j2.formatMsgNoLookups=true -Dterminal.jline=false -Dterminal.ansi=true -XX:+UseG1GC -XX:+ParallelRefProcEnabled -XX:MaxGCPauseMillis=200 -XX:+UnlockExperimentalVMOptions -XX:+DisableExplicitGC -XX:+AlwaysPreTouch -XX:G1HeapWastePercent=5 -XX:G1MixedGCCountTarget=4 -XX:G1MixedGCLiveThresholdPercent=90 -XX:G1RSetUpdatingPauseTimePercent=5 -XX:SurvivorRatio=32 -XX:+PerfDisableSharedMem -XX:MaxTenuringThreshold=1 -XX:G1NewSizePercent=30 -XX:G1MaxNewSizePercent=40 -XX:G1HeapRegionSize=8M -XX:G1ReservePercent=20 -XX:InitiatingHeapOccupancyPercent=15 -Dusing.aikars.flags=https://mcflags.emc.gs -Daikars.new.flags=true -Xms\${MIN_MAX_RAM} -Xmx\${MIN_MAX_RAM} -jar \${SERVER_JAR} nogui'
+SERVER_START_COMMAND='java -Dlog4j2.formatMsgNoLookups=true -Dterminal.jline=false -Dterminal.ansi=true -XX:+UseG1GC -XX:+ParallelRefProcEnabled -XX:MaxGCPauseMillis=200 -XX:+UnlockExperimentalVMOptions -XX:+DisableExplicitGC -XX:+AlwaysPreTouch -XX:G1HeapWastePercent=5 -XX:G1MixedGCCountTarget=4 -XX:G1MixedGCLiveThresholdPercent=90 -XX:G1RSetUpdatingPauseTimePercent=5 -XX:SurvivorRatio=32 -XX:+PerfDisableSharedMem -XX:MaxTenuringThreshold=1 -XX:G1NewSizePercent=30 -XX:G1MaxNewSizePercent=40 -XX:G1HeapRegionSize=8M -XX:G1ReservePercent=20 -XX:InitiatingHeapOccupancyPercent=15 -Dusing.aikars.flags=https://mcflags.emc.gs -Daikars.new.flags=true -Xms${MIN_MAX_RAM} -Xmx${MIN_MAX_RAM} -jar ${SERVER_JAR} nogui'
 
 SERVER_PORT="25565"
 RCON_PASSWORD="SECURE_SHIBAL_BOER_1989"
 RCON_PORT="25575"
 
-IDLE_FILE="\${SERVER_DIRECTORY}/scripts/minecraft_idle_minutes"
+IDLE_FILE="${SERVER_DIRECTORY}/scripts/minecraft_idle_minutes"
 IDLE_MINUTES_SHUTDOWN=5
 MAX_ERROR_RETRIES=5
 RETRY_INTERVAL=30
-TIME_LOG_FILE="\${SERVER_DIRECTORY}/scripts/minecraft_time_log"
+TIME_LOG_FILE="${SERVER_DIRECTORY}/scripts/minecraft_time_log"
 EOF
 
 	sudo chown root:minecraft-group /etc/minecraft.env
@@ -152,7 +152,7 @@ EOF
 }
 
 create_dir() {
-	# === CREATE DIRECTORY AND DOWNLOAD SERVER JAR  ===
+	# === CREATE DIRECTORY  ===
 	
 	mkdir -p ${SERVER_DIRECTORY}
 	sudo chown -R :minecraft-group ${SERVER_DIRECTORY}
@@ -167,28 +167,34 @@ create_dir() {
 	cd ${SERVER_DIRECTORY}
 	mkdir data
 	mkdir scripts
-	
-	cd data
-	wget ${MINECRAFTSERVERURL} -O ${SERVER_JAR} || { echo "Download failed"; exit 1; }
 }
 
 create_server_properties() {
 	# === CREATE server.properties BEFORE FIRST LAUNCH ===
 	
 	cd ${SERVER_DIRECTORY}/data
-	cat <<EOF > server.properties
+	sudo tee server.properties > /dev/null <<EOF
 # Minecraft server properties
 server-port=${SERVER_PORT}
 enable-rcon=true
 rcon.password=${RCON_PASSWORD}
 rcon.port=${RCON_PORT}
+sync-chunk-writes=false
+network-compression-threshold=512
+simulation-distance=4
+view-distance=7
 EOF
 }
 
 initialize_server_eula() {
-	# === INITIALIZE SERVER ===
+	# === DOWNLOAD SERVER JAR and INITIALIZE SERVER ===
 	
 	cd ${SERVER_DIRECTORY}/data
+
+	# Download server jar
+	wget ${MINECRAFTSERVERURL} -O ${SERVER_JAR} || { echo "Download failed"; exit 1; }
+
+	# Initialize server to generate eula.txt
 	sudo -u minecraft timeout 60s ${SERVER_START_COMMAND} || true
 	ATTEMPTS=0
 	while [ ! -f eula.txt ] && [ "${ATTEMPTS}" -lt "${MAX_ERROR_RETRIES}" ]; do
@@ -206,38 +212,38 @@ create_start_script() {
 	# === CREATE START SCRIPT ===
 	
 	cd ${SERVER_DIRECTORY}/scripts
-	cat <<EOF > start_script.sh
+	sudo tee start_script.sh > /dev/null <<'EOF'
 #!/bin/bash
 source /etc/minecraft.env
 
 # Remove stale instances
-pkill -u minecraft -f "\${SERVER_JAR}"
+pkill -u minecraft -f "${SERVER_JAR}"
 screen -S minecraft -X quit > /dev/null
 
 # Dynamically set RAM
-if [ "\${USE_HARDCODED_RAM}" = "false" ]; then
-	AVAILABLE_RAM=\$(awk '/MemTotal/ {print int(\$2 / 1024 / 1024 - 1)}' /proc/meminfo)
+if [ "${USE_HARDCODED_RAM}" = "false" ]; then
+	AVAILABLE_RAM=$(awk '/MemTotal/ {print int($2 / 1024 / 1024 - 1)}' /proc/meminfo)
 	
-	if [ "\${AVAILABLE_RAM}" -lt 2 ]; then
+	if [ "${AVAILABLE_RAM}" -lt 2 ]; then
 		logger -t minecraft-server "Start Script: Not enough memory."
 		exit 1
 	else
-		MIN_MAX_RAM="\${AVAILABLE_RAM}G"
-		logger -t minecraft-server "Start Script: Not using hardcoded RAM. Found available RAM: \${MIN_MAX_RAM}."
+		MIN_MAX_RAM="${AVAILABLE_RAM}G"
+		logger -t minecraft-server "Start Script: Not using hardcoded RAM. Found available RAM: ${MIN_MAX_RAM}."
 	fi
 else
-	logger -t minecraft-server "Start Script: Using hardcoded RAM: \${MIN_MAX_RAM}."
+	logger -t minecraft-server "Start Script: Using hardcoded RAM: ${MIN_MAX_RAM}."
 fi
 
 # Reevaluate server start command
-eval "SERVER_START_COMMAND=\\"\${SERVER_START_COMMAND}\\""
+eval "SERVER_START_COMMAND=\\"${SERVER_START_COMMAND}\\""
 
 # Start Minecraft server in a detached screen session
-logger -t minecraft-server "Start Script: Starting Minecraft server with command: \${SERVER_START_COMMAND}"
-screen -dmS minecraft bash -c "exec \${SERVER_START_COMMAND}"
+logger -t minecraft-server "Start Script: Starting Minecraft server with command: ${SERVER_START_COMMAND}"
+screen -dmS minecraft bash -c "exec ${SERVER_START_COMMAND}"
 
 sleep 5
-pgrep -u minecraft -f "\${SERVER_JAR}" || {
+pgrep -u minecraft -f "${SERVER_JAR}" || {
     logger -t minecraft-server "Start Script: Server failed to start."
     exit 1
 }
@@ -248,34 +254,34 @@ create_stop_script() {
 	# === CREATE STOP SCRIPT ===
 
 	cd ${SERVER_DIRECTORY}/scripts
-	cat <<EOF > stop_script.sh
+	sudo tee stop_script.sh > /dev/null <<'EOF'
 #!/bin/bash
 source /etc/minecraft.env
 
 # Retry loop for RCON shutdown
-cd \${SERVER_DIRECTORY}/data
-for i in \$(seq 1 \${MAX_ERROR_RETRIES}); do
+cd ${SERVER_DIRECTORY}/data
+for i in $(seq 1 ${MAX_ERROR_RETRIES}); do
     logger -t minecraft-server "Sending stop command via RCON..."
-    timeout 60 mcrcon -H 127.0.0.1 -P \${RCON_PORT} -p "\${RCON_PASSWORD}" stop && {
+    timeout 60 mcrcon -H 127.0.0.1 -P ${RCON_PORT} -p "${RCON_PASSWORD}" stop && {
         logger -t minecraft-server "Stop command sent successfully."
 		screen -S minecraft -X quit > /dev/null
         exit 0
     }
-    logger -t minecraft-server "RCON failed. Retrying in \${RETRY_INTERVAL} seconds..."
-    sleep \${RETRY_INTERVAL}
+    logger -t minecraft-server "RCON failed. Retrying in ${RETRY_INTERVAL} seconds..."
+    sleep ${RETRY_INTERVAL}
 done
 
 # Fallback process kill
-logger -t minecraft-server "Failed to stop server after \${MAX_ERROR_RETRIES} attempts."
-PID=\$(pgrep -u minecraft -f "\${SERVER_JAR}")
-if [ -n "\${PID}" ]; then
-    if ps -p "\${PID}" -o comm= | grep -q java; then
-        kill -9 "\${PID}"
-        logger -t minecraft-server "Fallback: Killed Minecraft server process \${PID}."
+logger -t minecraft-server "Failed to stop server after ${MAX_ERROR_RETRIES} attempts."
+PID=$(pgrep -u minecraft -f "${SERVER_JAR}")
+if [ -n "${PID}" ]; then
+    if ps -p "${PID}" -o comm= | grep -q java; then
+        kill -9 "${PID}"
+        logger -t minecraft-server "Fallback: Killed Minecraft server process ${PID}."
 		screen -S minecraft -X quit > /dev/null
         exit 0
     else
-        logger -t minecraft-server "Fallback: PID \${PID} is not a Java process. Skipping kill."
+        logger -t minecraft-server "Fallback: PID ${PID} is not a Java process. Skipping kill."
         exit 1
     fi
 else
@@ -289,115 +295,115 @@ create_idle_check_script() {
 	# === CREATE IDLE CHECK SCRIPT ===
 
 	cd ${SERVER_DIRECTORY}/scripts
-	cat <<EOF > idle_check_script.sh
+	sudo tee idle_check_script.sh > /dev/null <<'EOF'
 #!/bin/bash
 source /etc/minecraft.env
 
 # Lock to only 1 instance of check idle script
-LOCK_FILE="\${SERVER_DIRECTORY}/scripts/idle_check.lock"
-if [ -f "\${LOCK_FILE}" ]; then
-    AGE=\$((\$(date +%s) - \$(stat -c \%Y "\${LOCK_FILE}")))
-    if [ "\${AGE}" -gt 600 ]; then
+LOCK_FILE="${SERVER_DIRECTORY}/scripts/idle_check.lock"
+if [ -f "${LOCK_FILE}" ]; then
+    AGE=$(($(date +%s) - $(stat -c \%Y "${LOCK_FILE}")))
+    if [ "${AGE}" -gt 600 ]; then
         logger -t minecraft-idle-check "Stale lock detected. Removing."
-        rm -f "\${LOCK_FILE}"
+        rm -f "${LOCK_FILE}"
     fi
 fi
-exec 200>"\${LOCK_FILE}"
+exec 200>"${LOCK_FILE}"
 flock -n -w 10 200 || {
     logger -t minecraft-idle-check "Idle lock check: Lock wait timeout. Another instance may be running. Exiting."
     exit 1
 }
 
 # Declare minutes online (positive number = minutes of no players, negative number = minutes of server down)
-if [ -f "\${IDLE_FILE}" ]; then
-	MINUTES=\$(cat "\${IDLE_FILE}")
+if [ -f "${IDLE_FILE}" ]; then
+	MINUTES=$(cat "${IDLE_FILE}")
 else
 	MINUTES=0
 fi
 
 # Check if server process is running
 RCON_RESPONSE=""
-if [ -z "\$(pgrep -u minecraft -f \${SERVER_JAR})" ]; then
+if [ -z "$(pgrep -u minecraft -f ${SERVER_JAR})" ]; then
     # Reset if accumulating idle minutes
-	if [ \${MINUTES} -gt 0 ]; then
+	if [ ${MINUTES} -gt 0 ]; then
 		MINUTES=0
 	fi
-	MINUTES=\$((MINUTES - 1))
-	logger -t minecraft-idle-check "Offline check: Server process not running. \${MINUTES} / -\${IDLE_MINUTES_SHUTDOWN} minute/s before shutdown."
+	MINUTES=$((MINUTES - 1))
+	logger -t minecraft-idle-check "Offline check: Server process not running. ${MINUTES} / -${IDLE_MINUTES_SHUTDOWN} minute/s before shutdown."
 
 else
 	# RCON Query player list
-	RCON_RESPONSE=\$(timeout 30 mcrcon -H 127.0.0.1 -P \${RCON_PORT} -p "\${RCON_PASSWORD}" list 2>/dev/null)
-	logger -t minecraft-idle-check "Player list: \${RCON_RESPONSE}"
+	RCON_RESPONSE=$(timeout 30 mcrcon -H 127.0.0.1 -P ${RCON_PORT} -p "${RCON_PASSWORD}" list 2>/dev/null)
+	logger -t minecraft-idle-check "Player list: ${RCON_RESPONSE}"
 fi
 
 # Check if RCON command failed
-if [ -z "\${RCON_RESPONSE}" ]; then
+if [ -z "${RCON_RESPONSE}" ]; then
 	# Reset if accumulating idle minutes
-	if [ \${MINUTES} -gt 0 ]; then
+	if [ ${MINUTES} -gt 0 ]; then
 		MINUTES=0
 	fi
-	MINUTES=\$((MINUTES - 1))
-	logger -t minecraft-idle-check "Hang check: RCON failed or returned empty. \${MINUTES} / -\${IDLE_MINUTES_SHUTDOWN} minute/s before shutdown."
+	MINUTES=$((MINUTES - 1))
+	logger -t minecraft-idle-check "Hang check: RCON failed or returned empty. ${MINUTES} / -${IDLE_MINUTES_SHUTDOWN} minute/s before shutdown."
 	
 # Check number of players
-elif echo "\${RCON_RESPONSE}" | grep -qE "\\b0 of a max"; then
+elif echo "${RCON_RESPONSE}" | grep -qE "\\b0 of a max"; then
 	# Reset if accumulating offline minutes
-	if [ \${MINUTES} -lt 0 ]; then
+	if [ ${MINUTES} -lt 0 ]; then
 		MINUTES=0
 	fi
-	MINUTES=\$((MINUTES + 1))
-	logger -t minecraft-idle-check "Idle check: No active players. \${MINUTES} / \${IDLE_MINUTES_SHUTDOWN} minute/s before shutdown."
+	MINUTES=$((MINUTES + 1))
+	logger -t minecraft-idle-check "Idle check: No active players. ${MINUTES} / ${IDLE_MINUTES_SHUTDOWN} minute/s before shutdown."
 
 # There are active players
 else
 	MINUTES=0
-	logger -t minecraft-idle-check "Idle check: Found players. Resetting timer back to \${MINUTES} / \${IDLE_MINUTES_SHUTDOWN} minute/s"
+	logger -t minecraft-idle-check "Idle check: Found players. Resetting timer back to ${MINUTES} / ${IDLE_MINUTES_SHUTDOWN} minute/s"
 
 	# Log player play time by accumulating minutes
-	if [ ! -f "\${TIME_LOG_FILE}" ]; then
-		touch "\${TIME_LOG_FILE}"
+	if [ ! -f "${TIME_LOG_FILE}" ]; then
+		touch "${TIME_LOG_FILE}"
 	fi
 
 	# Calculate increment based on player count per minute to get fractional time
-	PLAYER_LIST=\$(echo "\${RCON_RESPONSE}" | awk -F: '{if (NF>1) print \$2}' | sed 's/\\x1b\\[[0-9;]*m//g' | tr ', ' '\\n' | grep -v '^\\s*\$')
-	PLAYER_COUNT=\$(echo "\${PLAYER_LIST}" | grep -c .)
-	INCREMENT=\$(awk "BEGIN {printf \\"%.4f\\", 1/\${PLAYER_COUNT}}")
+	PLAYER_LIST=$(echo "${RCON_RESPONSE}" | awk -F: '{if (NF>1) print $2}' | sed 's/\\x1b\\[[0-9;]*m//g' | tr ', ' '\\n' | grep -v '^\\s*$')
+	PLAYER_COUNT=$(echo "${PLAYER_LIST}" | grep -c .)
+	INCREMENT=$(awk "BEGIN {printf \\"%.4f\\", 1/${PLAYER_COUNT}}")
 
-	for PLAYER in \${PLAYER_LIST}; do
+	for PLAYER in ${PLAYER_LIST}; do
 
 		# Get current time (default to 0 if not found)
-		CURRENT_TIME=\$(grep -F "\${PLAYER}:" "\${TIME_LOG_FILE}" | cut -d: -f2)
-		if [ -z "\${CURRENT_TIME}" ]; then
+		CURRENT_TIME=$(grep -F "${PLAYER}:" "${TIME_LOG_FILE}" | cut -d: -f2)
+		if [ -z "${CURRENT_TIME}" ]; then
 			CURRENT_TIME=0
 		fi
-		NEW_TIME=\$(awk "BEGIN {printf \\"%.4f\\", \${CURRENT_TIME}+\${INCREMENT}}")
+		NEW_TIME=$(awk "BEGIN {printf \\"%.4f\\", ${CURRENT_TIME}+${INCREMENT}}")
 
-		if grep -qE "^\${PLAYER}:" "\${TIME_LOG_FILE}"; then
-			sed -i "s/^\${PLAYER}:.*/\${PLAYER}:\${NEW_TIME}/" "\${TIME_LOG_FILE}"
+		if grep -qE "^${PLAYER}:" "${TIME_LOG_FILE}"; then
+			sed -i "s/^${PLAYER}:.*/${PLAYER}:${NEW_TIME}/" "${TIME_LOG_FILE}"
 		else
-			echo "\${PLAYER}:\${NEW_TIME}" >> "\${TIME_LOG_FILE}"
+			echo "${PLAYER}:${NEW_TIME}" >> "${TIME_LOG_FILE}"
 		fi
 	done
 fi
 
 # Check minutes for shutdown
-if [ "\${MINUTES}" -le "-\${IDLE_MINUTES_SHUTDOWN}" ]; then
-	logger -t minecraft-idle-check "Offline check: Server down for \${IDLE_MINUTES_SHUTDOWN} minutes. Shutting down..."
-	echo 0 > "\${IDLE_FILE}"
-	rm -f "\${LOCK_FILE}"
+if [ "${MINUTES}" -le "-${IDLE_MINUTES_SHUTDOWN}" ]; then
+	logger -t minecraft-idle-check "Offline check: Server down for ${IDLE_MINUTES_SHUTDOWN} minutes. Shutting down..."
+	echo 0 > "${IDLE_FILE}"
+	rm -f "${LOCK_FILE}"
 	sudo systemctl stop minecraft.service
 	sudo /bin/systemctl start minecraft-shutdown.service
 	
-elif [ "\${MINUTES}" -ge "\${IDLE_MINUTES_SHUTDOWN}" ]; then
-	logger -t minecraft-idle-check "Idle check: No active players for \${IDLE_MINUTES_SHUTDOWN} minutes. Shutting down..."
-	echo 0 > "\${IDLE_FILE}"
-	rm -f "\${LOCK_FILE}"
+elif [ "${MINUTES}" -ge "${IDLE_MINUTES_SHUTDOWN}" ]; then
+	logger -t minecraft-idle-check "Idle check: No active players for ${IDLE_MINUTES_SHUTDOWN} minutes. Shutting down..."
+	echo 0 > "${IDLE_FILE}"
+	rm -f "${LOCK_FILE}"
 	sudo systemctl stop minecraft.service
 	sudo /bin/systemctl start minecraft-shutdown.service
 
 else
-	echo "\${MINUTES}" > "\${IDLE_FILE}"
+	echo "${MINUTES}" > "${IDLE_FILE}"
 fi
 EOF
 }
@@ -426,7 +432,7 @@ give_proper_permissions() {
 create_minecraft_service() {
 	# === CREATE minecraft.service ===
 	
-	cat <<EOF | sudo tee /etc/systemd/system/minecraft.service
+	sudo tee /etc/systemd/system/minecraft.service > /dev/null <<EOF
 [Unit]
 Description=Minecraft Server on start up
 Requires=network-online.target
@@ -465,7 +471,7 @@ create_check_idle_service_timer() {
 	# === CREATE SYSTEMD SERVICE AND TIMER FOR IDLE CHECK ===
 
 	# minecraft-idle-check.service
-	cat <<EOF | sudo tee /etc/systemd/system/minecraft-idle-check.service
+	sudo tee /etc/systemd/system/minecraft-idle-check.service > /dev/null <<EOF
 [Unit]
 Description=Check if Minecraft server is idle
 
@@ -476,7 +482,7 @@ SyslogIdentifier=minecraft-idle-check
 EOF
 
 	# minecraft-idle-check.timer
-	cat <<EOF | sudo tee /etc/systemd/system/minecraft-idle-check.timer
+	sudo tee /etc/systemd/system/minecraft-idle-check.timer > /dev/null <<EOF
 [Unit]
 Description=Run Minecraft idle check every 1 minute
 
@@ -494,7 +500,7 @@ create_shutdown_service() {
 	# === CREATE SYSTEMD SERVICE FOR SHUTDOWN ===
 
 	# minecraft-shutdown.service
-	cat <<EOF | sudo tee /etc/systemd/system/minecraft-shutdown.service
+	sudo tee /etc/systemd/system/minecraft-shutdown.service > /dev/null <<EOF
 [Unit]
 Description=Shutdown the system when Minecraft requests it
 Requires=multi-user.target
@@ -519,22 +525,22 @@ enable_startups() {
 
 
 # === SCRIPT PIPELINE ===
-setup_user_and_login()
-create_permission_group()
-install_dependencies()
-optimize_machine()
-create_swap_space()
-create_env_file()
-create_dir()
-create_server_properties()
-initialize_server_eula()
-create_start_script()
-create_stop_script()
-create_idle_check_script()
-give_proper_permissions()
-create_minecraft_service()
-create_check_idle_service_timer()
-enable_startups()
+setup_user_and_login
+create_permission_group
+install_dependencies
+optimize_machine
+create_swap_space
+create_env_file
+create_dir
+create_server_properties
+initialize_server_eula
+create_start_script
+create_stop_script
+create_idle_check_script
+give_proper_permissions
+create_minecraft_service
+create_check_idle_service_timer
+enable_startups
 
 # === END OF SCRIPT ===
 
