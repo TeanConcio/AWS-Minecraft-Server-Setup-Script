@@ -130,6 +130,7 @@ SERVER_DIRECTORY="/opt/minecraft/server"
 MINECRAFTSERVERURL="https://fill-data.papermc.io/v1/objects/234a9b32098100c6fc116664d64e36ccdb58b5b649af0f80bcccb08b0255eaea/paper-1.20.1-196.jar"
 SERVER_JAR="paper-1.20.1-196.jar"
 USE_HARDCODED_RAM=false
+RESERVED_RAM_GB=1
 MIN_MAX_RAM="15G"
 SERVER_START_COMMAND='java -Dlog4j2.formatMsgNoLookups=true -Dterminal.jline=false -Dterminal.ansi=true -XX:+UseG1GC -XX:+ParallelRefProcEnabled -XX:MaxGCPauseMillis=200 -XX:+UnlockExperimentalVMOptions -XX:+DisableExplicitGC -XX:+AlwaysPreTouch -XX:G1HeapWastePercent=5 -XX:G1MixedGCCountTarget=4 -XX:G1MixedGCLiveThresholdPercent=90 -XX:G1RSetUpdatingPauseTimePercent=5 -XX:SurvivorRatio=32 -XX:+PerfDisableSharedMem -XX:MaxTenuringThreshold=1 -XX:G1NewSizePercent=30 -XX:G1MaxNewSizePercent=40 -XX:G1HeapRegionSize=8M -XX:G1ReservePercent=20 -XX:InitiatingHeapOccupancyPercent=15 -Dusing.aikars.flags=https://mcflags.emc.gs -Daikars.new.flags=true -Xms${MIN_MAX_RAM} -Xmx${MIN_MAX_RAM} -jar ${SERVER_JAR} nogui'
 
@@ -215,6 +216,7 @@ create_start_script() {
 	sudo tee start_script.sh > /dev/null <<'EOF'
 #!/bin/bash
 source /etc/minecraft.env
+cd ${SERVER_DIRECTORY}/data
 
 # Remove stale instances
 pkill -u minecraft -f "${SERVER_JAR}"
@@ -222,7 +224,8 @@ screen -S minecraft -X quit > /dev/null
 
 # Dynamically set RAM
 if [ "${USE_HARDCODED_RAM}" = "false" ]; then
-	AVAILABLE_RAM=$(awk '/MemTotal/ {print int($2 / 1024 / 1024 - 1)}' /proc/meminfo)
+	AVAILABLE_RAM=$(awk '/MemTotal/ {print int($2 / 1024 / 1024 + 1)}' /proc/meminfo)
+	AVAILABLE_RAM=$((AVAILABLE_RAM - RESERVED_RAM_GB))
 	
 	if [ "${AVAILABLE_RAM}" -lt 2 ]; then
 		logger -t minecraft-server "Start Script: Not enough memory."
@@ -236,13 +239,14 @@ else
 fi
 
 # Reevaluate server start command
-eval "SERVER_START_COMMAND=\\"${SERVER_START_COMMAND}\\""
+eval "SERVER_START_COMMAND=\"${SERVER_START_COMMAND}\""
 
 # Start Minecraft server in a detached screen session
 logger -t minecraft-server "Start Script: Starting Minecraft server with command: ${SERVER_START_COMMAND}"
 screen -dmS minecraft bash -c "exec ${SERVER_START_COMMAND}"
+#exec ${SERVER_START_COMMAND}
 
-sleep 5
+sleep 10
 pgrep -u minecraft -f "${SERVER_JAR}" || {
     logger -t minecraft-server "Start Script: Server failed to start."
     exit 1
@@ -257,9 +261,9 @@ create_stop_script() {
 	sudo tee stop_script.sh > /dev/null <<'EOF'
 #!/bin/bash
 source /etc/minecraft.env
+cd ${SERVER_DIRECTORY}/data
 
 # Retry loop for RCON shutdown
-cd ${SERVER_DIRECTORY}/data
 for i in $(seq 1 ${MAX_ERROR_RETRIES}); do
     logger -t minecraft-server "Sending stop command via RCON..."
     timeout 60 mcrcon -H 127.0.0.1 -P ${RCON_PORT} -p "${RCON_PASSWORD}" stop && {
@@ -302,7 +306,7 @@ source /etc/minecraft.env
 # Lock to only 1 instance of check idle script
 LOCK_FILE="${SERVER_DIRECTORY}/scripts/idle_check.lock"
 if [ -f "${LOCK_FILE}" ]; then
-    AGE=$(($(date +%s) - $(stat -c \%Y "${LOCK_FILE}")))
+    AGE=$(($(date +%s) - $(stat -c %Y "${LOCK_FILE}")))
     if [ "${AGE}" -gt 600 ]; then
         logger -t minecraft-idle-check "Stale lock detected. Removing."
         rm -f "${LOCK_FILE}"
@@ -347,7 +351,7 @@ if [ -z "${RCON_RESPONSE}" ]; then
 	logger -t minecraft-idle-check "Hang check: RCON failed or returned empty. ${MINUTES} / -${IDLE_MINUTES_SHUTDOWN} minute/s before shutdown."
 	
 # Check number of players
-elif echo "${RCON_RESPONSE}" | grep -qE "\\b0 of a max"; then
+elif echo "${RCON_RESPONSE}" | grep -qE "\b0 of a max"; then
 	# Reset if accumulating offline minutes
 	if [ ${MINUTES} -lt 0 ]; then
 		MINUTES=0
@@ -366,9 +370,9 @@ else
 	fi
 
 	# Calculate increment based on player count per minute to get fractional time
-	PLAYER_LIST=$(echo "${RCON_RESPONSE}" | awk -F: '{if (NF>1) print $2}' | sed 's/\\x1b\\[[0-9;]*m//g' | tr ', ' '\\n' | grep -v '^\\s*$')
+	PLAYER_LIST=$(echo "${RCON_RESPONSE}" | awk -F: '{if (NF>1) print $2}' | sed 's/\x1b\[[0-9;]*m//g' | tr ', ' '\n' | grep -v '^\s*$')
 	PLAYER_COUNT=$(echo "${PLAYER_LIST}" | grep -c .)
-	INCREMENT=$(awk "BEGIN {printf \\"%.4f\\", 1/${PLAYER_COUNT}}")
+	INCREMENT=$(awk "BEGIN {printf \"%.4f\", 1/${PLAYER_COUNT}}")
 
 	for PLAYER in ${PLAYER_LIST}; do
 
@@ -377,7 +381,7 @@ else
 		if [ -z "${CURRENT_TIME}" ]; then
 			CURRENT_TIME=0
 		fi
-		NEW_TIME=$(awk "BEGIN {printf \\"%.4f\\", ${CURRENT_TIME}+${INCREMENT}}")
+		NEW_TIME=$(awk "BEGIN {printf \"%.4f\", ${CURRENT_TIME}+${INCREMENT}}")
 
 		if grep -qE "^${PLAYER}:" "${TIME_LOG_FILE}"; then
 			sed -i "s/^${PLAYER}:.*/${PLAYER}:${NEW_TIME}/" "${TIME_LOG_FILE}"
