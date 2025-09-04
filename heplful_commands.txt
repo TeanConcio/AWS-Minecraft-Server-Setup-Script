@@ -37,7 +37,20 @@ sudo kill -9 <PID>
 # Kill processes
 
 top
-# Check system resource utilization
+# Check system CPU utilization
+
+free -h
+# Check system memory utilization
 
 df -h
-# Check system disk usage
+# Check system disk utilization
+
+getent passwd | cut -d: -f1
+# Get existing usernames
+
+sudo setfacl -R -b /opt/minecraft
+sudo chown -R :minecraft-group /opt/minecraft
+sudo chmod -R 770 /opt/minecraft
+sudo setfacl -R -m g:minecraft-group:rwx /opt/minecraft
+sudo setfacl -R -m d:g:minecraft-group:rwx /opt/minecraft
+# Give minecraft-group permissions
