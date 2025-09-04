@@ -544,6 +544,7 @@ create_idle_check_script
 give_proper_permissions
 create_minecraft_service
 create_check_idle_service_timer
+create_shutdown_service
 enable_startups
 
 # === END OF SCRIPT ===
