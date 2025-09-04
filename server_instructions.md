@@ -63,7 +63,7 @@
 
 ---
 
-## Changing Server Resources (and Saving Money)
+## Changing Server Resources (and Saving Some Money)
 
 1. **Adjust Based on Player Count**  
    - Recommended specs:  
@@ -79,8 +79,8 @@
 3. **Select New Instance Type**  
    - Current type will be displayed.
    - Choose based on player count:  
-     - `c7g.xlarge` → 8 GB RAM  
-     - `c7g.2xlarge` → 16 GB RAM
+     - `m7i.xlarge` → 8 GB RAM (~6.12 php/hr)
+     - `r7i.xlarge` → 16 GB RAM (~7.76 php/hr)
 
 4. **Apply Changes**  
    - Review the **Instance Type Comparison**.
