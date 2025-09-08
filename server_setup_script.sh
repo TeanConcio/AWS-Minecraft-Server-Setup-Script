@@ -313,7 +313,7 @@ if [ -f "${LOCK_FILE}" ]; then
     fi
 fi
 exec 200>"${LOCK_FILE}"
-flock -n -w 10 200 || {
+flock -n -w 20 200 || {
     logger -t minecraft-idle-check "Idle lock check: Lock wait timeout. Another instance may be running. Exiting."
     exit 1
 }
@@ -337,8 +337,8 @@ if [ -z "$(pgrep -u minecraft -f ${SERVER_JAR})" ]; then
 
 else
 	# RCON Query player list
-	RCON_RESPONSE=$(timeout 30 mcrcon -H 127.0.0.1 -P ${RCON_PORT} -p "${RCON_PASSWORD}" list 2>/dev/null)
-	logger -t minecraft-idle-check "Player list: ${RCON_RESPONSE}"
+	RCON_RESPONSE=$(timeout 20 mcrcon -H 127.0.0.1 -P ${RCON_PORT} -p "${RCON_PASSWORD}" list 2>/dev/null)
+	#logger -t minecraft-idle-check "Player list: ${RCON_RESPONSE}"
 fi
 
 # Check if RCON command failed
@@ -361,8 +361,11 @@ elif echo "${RCON_RESPONSE}" | grep -qE "\b0 of a max"; then
 
 # There are active players
 else
-	MINUTES=0
-	logger -t minecraft-idle-check "Idle check: Found players. Resetting timer back to ${MINUTES} / ${IDLE_MINUTES_SHUTDOWN} minute/s"
+	# Only reset and log if previous minutes is not zero
+	if [ ${MINUTES} -ne 0 ]; then
+		MINUTES=0
+		logger -t minecraft-idle-check "Idle check: Found players. Resetting timer back to 0 / ${IDLE_MINUTES_SHUTDOWN} minute/s"
+	fi
 
 	# Log player play time by accumulating minutes
 	if [ ! -f "${TIME_LOG_FILE}" ]; then
@@ -492,7 +495,7 @@ Description=Run Minecraft idle check every 1 minute
 
 [Timer]
 OnBootSec=5min
-OnUnitActiveSec=1min
+OnCalendar=*-*-* *:*:00
 Unit=minecraft-idle-check.service
 
 [Install]

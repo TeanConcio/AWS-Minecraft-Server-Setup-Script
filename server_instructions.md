@@ -30,7 +30,7 @@
 
 7. **Join the Server**  
    - Go to **Multiplayer**.
-   - Add the server using the IP address (see **Opening the Server**).
+   - Add the server using the IP address (see **Opening the Server**), or ask the person who started the server for it.
    - Click **Join Server**.
 
 ---
