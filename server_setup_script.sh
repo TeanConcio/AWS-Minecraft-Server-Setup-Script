@@ -128,11 +128,14 @@ create_env_file() {
 	sudo tee /etc/minecraft.env > /dev/null <<'EOF'
 SERVER_DIRECTORY="/opt/minecraft/server"
 
-SERVER_JAR="paper-1.20.1-196.jar"
+IS_FORGE_SERVER=false
+SERVER_FILE="paper-1.20.1-196.jar"
 USE_HARDCODED_RAM=false
 RESERVED_RAM_GB=1
 MIN_MAX_RAM="15G"
-SERVER_START_COMMAND='java -Dlog4j2.formatMsgNoLookups=true -Dterminal.jline=false -Dterminal.ansi=true -XX:+UseG1GC -XX:+ParallelRefProcEnabled -XX:MaxGCPauseMillis=200 -XX:+UnlockExperimentalVMOptions -XX:+DisableExplicitGC -XX:+AlwaysPreTouch -XX:G1HeapWastePercent=5 -XX:G1MixedGCCountTarget=4 -XX:G1MixedGCLiveThresholdPercent=90 -XX:G1RSetUpdatingPauseTimePercent=5 -XX:SurvivorRatio=32 -XX:+PerfDisableSharedMem -XX:MaxTenuringThreshold=1 -XX:G1NewSizePercent=30 -XX:G1MaxNewSizePercent=40 -XX:G1HeapRegionSize=8M -XX:G1ReservePercent=20 -XX:InitiatingHeapOccupancyPercent=15 -Dusing.aikars.flags=https://mcflags.emc.gs -Daikars.new.flags=true -Xms${MIN_MAX_RAM} -Xmx${MIN_MAX_RAM} -jar ${SERVER_JAR} nogui'
+JVM_ARGS='-Dlog4j2.formatMsgNoLookups=true -Dterminal.jline=false -Dterminal.ansi=true -XX:+UseG1GC -XX:+ParallelRefProcEnabled -XX:MaxGCPauseMillis=200 -XX:+UnlockExperimentalVMOptions -XX:+DisableExplicitGC -XX:+AlwaysPreTouch -XX:G1HeapWastePercent=5 -XX:G1MixedGCCountTarget=4 -XX:G1MixedGCLiveThresholdPercent=90 -XX:G1RSetUpdatingPauseTimePercent=5 -XX:SurvivorRatio=32 -XX:+PerfDisableSharedMem -XX:MaxTenuringThreshold=1 -XX:G1NewSizePercent=30 -XX:G1MaxNewSizePercent=40 -XX:G1HeapRegionSize=8M -XX:G1ReservePercent=20 -XX:InitiatingHeapOccupancyPercent=15 -Dusing.aikars.flags=https://mcflags.emc.gs -Daikars.new.flags=true -Xms${MIN_MAX_RAM} -Xmx${MIN_MAX_RAM}'
+PROGRAM_ARGS='nogui'
+JVM_PROCESS_TAG="process-tag=minecraft-server"
 
 SERVER_PORT="25565"
 RCON_PASSWORD="SECURE_SHIBAL_BOER_1989"
@@ -165,9 +168,8 @@ create_dir() {
         : # Symlink already exists, do nothing
     fi
 	
-	cd ${SERVER_DIRECTORY}
-	mkdir data
-	mkdir scripts
+	cd "${SERVER_DIRECTORY}"
+    sudo mkdir -p data scripts
 }
 
 create_server_properties() {
@@ -199,7 +201,7 @@ source /etc/minecraft.env
 cd ${SERVER_DIRECTORY}/data
 
 # Remove stale instances
-pkill -u minecraft -f "${SERVER_JAR}"
+pkill -u minecraft -f "${JVM_PROCESS_TAG}"
 screen -S minecraft -X quit > /dev/null
 
 # Dynamically set RAM
@@ -219,7 +221,14 @@ else
 fi
 
 # Reevaluate server start command
-eval "SERVER_START_COMMAND=\"${SERVER_START_COMMAND}\""
+eval "JVM_ARGS=\"${JVM_ARGS}\""
+
+# Construct server start command
+if [ "${IS_FORGE_SERVER}" = "false" ]; then
+	SERVER_START_COMMAND="java -D${JVM_PROCESS_TAG} ${JVM_ARGS} -jar ${SERVER_FILE} ${PROGRAM_ARGS}"
+else
+	SERVER_START_COMMAND="java -D${JVM_PROCESS_TAG} ${JVM_ARGS} @${SERVER_FILE} ${PROGRAM_ARGS}"
+fi
 
 # Start Minecraft server in a detached screen session
 logger -t minecraft-server "Start Script: Starting Minecraft server with command: ${SERVER_START_COMMAND}"
@@ -227,7 +236,7 @@ screen -dmS minecraft bash -c "exec ${SERVER_START_COMMAND}"
 #exec ${SERVER_START_COMMAND}
 
 sleep 10
-pgrep -u minecraft -f "${SERVER_JAR}" || {
+pgrep -u minecraft -f "${JVM_PROCESS_TAG}" -o || {
     logger -t minecraft-server "Start Script: Server failed to start."
     exit 1
 }
@@ -257,7 +266,7 @@ done
 
 # Fallback process kill
 logger -t minecraft-server "Failed to stop server after ${MAX_ERROR_RETRIES} attempts."
-PID=$(pgrep -u minecraft -f "${SERVER_JAR}")
+PID=$(pgrep -u minecraft -f "${JVM_PROCESS_TAG}" -o)
 if [ -n "${PID}" ]; then
     if ps -p "${PID}" -o comm= | grep -q java; then
         kill -9 "${PID}"
@@ -307,7 +316,7 @@ fi
 
 # Check if server process is running
 RCON_RESPONSE=""
-if [ -z "$(pgrep -u minecraft -f ${SERVER_JAR})" ]; then
+if [ -z "$(pgrep -u minecraft -f ${JVM_PROCESS_TAG} -o)" ]; then
     # Reset if accumulating idle minutes
 	if [ ${MINUTES} -gt 0 ]; then
 		MINUTES=0
@@ -435,7 +444,7 @@ WorkingDirectory=${SERVER_DIRECTORY}/data
 EnvironmentFile=/etc/minecraft.env
 ExecStartPre=/bin/sh -c "echo madvise > /sys/kernel/mm/transparent_hugepage/enabled"
 ExecStartPre=/bin/sh -c "echo madvise > /sys/kernel/mm/transparent_hugepage/defrag"
-ExecStartPre=/usr/bin/test -f ${SERVER_DIRECTORY}/data/${SERVER_JAR}
+ExecStartPre=/bin/sh -c '[ -f "${SERVER_DIRECTORY}/data/${SERVER_FILE}" ] || [ -f "${SERVER_FILE}" ]'
 ExecStartPre=/usr/bin/test -r /etc/minecraft.env
 ExecStart=${SERVER_DIRECTORY}/scripts/start_script.sh
 ExecStop=${SERVER_DIRECTORY}/scripts/stop_script.sh
@@ -504,8 +513,8 @@ enable_startups() {
 	# === ENABLE SERVICES ON STARTUP ===
 
 	sudo systemctl daemon-reload
-	sudo systemctl enable minecraft.service
-	sudo systemctl enable --now minecraft-idle-check.timer
+	#sudo systemctl enable minecraft.service
+	#sudo systemctl enable --now minecraft-idle-check.timer
 	
 	#sudo systemctl start minecraft.service
 }
