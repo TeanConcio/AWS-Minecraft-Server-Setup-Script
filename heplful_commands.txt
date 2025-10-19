@@ -42,8 +42,12 @@ top
 free -h
 # Check system memory utilization
 
+lsblk
 df -h
-# Check system disk utilization
+# Check system disk utilization (Look for mount with EBS storage volume)
+
+du -sh <Directory Path>
+# Check disk utilization of directory
 
 getent passwd | cut -d: -f1
 # Get existing usernames

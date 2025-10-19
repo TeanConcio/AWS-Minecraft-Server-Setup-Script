@@ -90,6 +90,7 @@ EOF
 
 create_swap_space() {
     # === CREATE SWAP SPACE ===
+
     SWAP_SIZE_GB=4
     SWAP_FILE="/swapfile"
     SWAPPINESS=10
@@ -184,6 +185,8 @@ sync-chunk-writes=false
 network-compression-threshold=512
 simulation-distance=4
 view-distance=7
+max-tick-time=-1
+allow-flight=true
 EOF
 }
 
@@ -459,7 +462,7 @@ ExecStartPre=/usr/bin/test -f ${SERVER_DIRECTORY}/data/${SERVER_JAR}
 ExecStartPre=/usr/bin/test -r /etc/minecraft.env
 ExecStart=${SERVER_DIRECTORY}/scripts/start_script.sh
 ExecStop=${SERVER_DIRECTORY}/scripts/stop_script.sh
-ExecStopPost=/usr/bin/screen -S minecraft -X quit
+ExecStopPost=/bin/bash -c 'screen -S minecraft -X quit || true'
 TimeoutStopSec=300
 Restart=on-failure
 RestartSec=30
@@ -521,6 +524,7 @@ EOF
 }
 
 enable_startups() {
+	# === ENABLE SERVICES ON STARTUP ===
 
 	sudo systemctl daemon-reload
 	sudo systemctl enable minecraft.service
@@ -540,7 +544,7 @@ create_swap_space
 create_env_file
 create_dir
 create_server_properties
-initialize_server_eula
+# initialize_server_eula
 create_start_script
 create_stop_script
 create_idle_check_script
