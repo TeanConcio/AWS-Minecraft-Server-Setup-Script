@@ -128,7 +128,6 @@ create_env_file() {
 	sudo tee /etc/minecraft.env > /dev/null <<'EOF'
 SERVER_DIRECTORY="/opt/minecraft/server"
 
-MINECRAFTSERVERURL="https://fill-data.papermc.io/v1/objects/234a9b32098100c6fc116664d64e36ccdb58b5b649af0f80bcccb08b0255eaea/paper-1.20.1-196.jar"
 SERVER_JAR="paper-1.20.1-196.jar"
 USE_HARDCODED_RAM=false
 RESERVED_RAM_GB=1
@@ -188,28 +187,6 @@ view-distance=7
 max-tick-time=-1
 allow-flight=true
 EOF
-}
-
-initialize_server_eula() {
-	# === DOWNLOAD SERVER JAR and INITIALIZE SERVER ===
-	
-	cd ${SERVER_DIRECTORY}/data
-
-	# Download server jar
-	wget ${MINECRAFTSERVERURL} -O ${SERVER_JAR} || { echo "Download failed"; exit 1; }
-
-	# Initialize server to generate eula.txt
-	sudo -u minecraft timeout 60s ${SERVER_START_COMMAND} || true
-	ATTEMPTS=0
-	while [ ! -f eula.txt ] && [ "${ATTEMPTS}" -lt "${MAX_ERROR_RETRIES}" ]; do
-		sleep 10
-		ATTEMPTS=$((ATTEMPTS + 1))
-	done
-	if [ ! -f eula.txt ]; then
-		echo "EULA file not found after ${ATTEMPTS} attempts. Server may have failed to start."
-		exit 1
-	fi
-	sed -i 's/eula=false/eula=true/' eula.txt
 }
 
 create_start_script() {
@@ -544,7 +521,6 @@ create_swap_space
 create_env_file
 create_dir
 create_server_properties
-# initialize_server_eula
 create_start_script
 create_stop_script
 create_idle_check_script
