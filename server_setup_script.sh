@@ -127,9 +127,10 @@ create_env_file() {
 	
 	sudo tee /etc/minecraft.env > /dev/null <<'EOF'
 SERVER_DIRECTORY="/opt/minecraft/server"
+MINECRAFTSERVERURL="https://papermc.io/api/v2/projects/paper/versions/1.20.1/builds/196/downloads/paper-1.20.1-196.jar"
 
-IS_FORGE_SERVER=false
 SERVER_FILE="paper-1.20.1-196.jar"
+IS_FORGE_SERVER=false
 USE_HARDCODED_RAM=false
 RESERVED_RAM_GB=1
 MIN_MAX_RAM="15G"
@@ -191,6 +192,28 @@ allow-flight=true
 EOF
 }
 
+initialize_server_eula() {
+	# === DOWNLOAD SERVER JAR and INITIALIZE SERVER ===
+	
+	cd ${SERVER_DIRECTORY}/data
+
+	# Download server jar
+	wget ${MINECRAFTSERVERURL} -O ${SERVER_JAR} || { echo "Download failed"; exit 1; }
+
+	# Initialize server to generate eula.txt
+	sudo -u minecraft timeout 60s ${SERVER_START_COMMAND} || true
+	ATTEMPTS=0
+	while [ ! -f eula.txt ] && [ "${ATTEMPTS}" -lt "${MAX_ERROR_RETRIES}" ]; do
+		sleep 10
+		ATTEMPTS=$((ATTEMPTS + 1))
+	done
+	if [ ! -f eula.txt ]; then
+		echo "EULA file not found after ${ATTEMPTS} attempts. Server may have failed to start."
+		exit 1
+	fi
+	sed -i 's/eula=false/eula=true/' eula.txt
+}
+
 create_start_script() {
 	# === CREATE START SCRIPT ===
 	
@@ -236,10 +259,11 @@ screen -dmS minecraft bash -c "exec ${SERVER_START_COMMAND}"
 #exec ${SERVER_START_COMMAND}
 
 sleep 10
-pgrep -u minecraft -f "${JVM_PROCESS_TAG}" -o || {
+JAVA_PID=$(ps -u minecraft -o pid,cmd | grep "${JVM_PROCESS_TAG}" | grep java | grep -v SCREEN | awk '{print $1}')
+if [ -z "${JAVA_PID}" ]; then
     logger -t minecraft-server "Start Script: Server failed to start."
     exit 1
-}
+fi
 EOF
 }
 
@@ -266,8 +290,9 @@ done
 
 # Fallback process kill
 logger -t minecraft-server "Failed to stop server after ${MAX_ERROR_RETRIES} attempts."
-PID=$(pgrep -u minecraft -f "${JVM_PROCESS_TAG}" -o)
-if [ -n "${PID}" ]; then
+
+JAVA_PID=$(ps -u minecraft -o pid,cmd | grep "${JVM_PROCESS_TAG}" | grep java | grep -v SCREEN | awk '{print $1}')
+if [ -n "${JAVA_PID}" ]; then
     if ps -p "${PID}" -o comm= | grep -q java; then
         kill -9 "${PID}"
         logger -t minecraft-server "Fallback: Killed Minecraft server process ${PID}."
@@ -316,7 +341,8 @@ fi
 
 # Check if server process is running
 RCON_RESPONSE=""
-if [ -z "$(pgrep -u minecraft -f ${JVM_PROCESS_TAG} -o)" ]; then
+JAVA_PID=$(ps -u minecraft -o pid,cmd | grep "${JVM_PROCESS_TAG}" | grep java | grep -v SCREEN | awk '{print $1}')
+if [ -z "${JAVA_PID}" ]; then
     # Reset if accumulating idle minutes
 	if [ ${MINUTES} -gt 0 ]; then
 		MINUTES=0
@@ -530,6 +556,7 @@ create_swap_space
 create_env_file
 create_dir
 create_server_properties
+#initialize_server_eula
 create_start_script
 create_stop_script
 create_idle_check_script
