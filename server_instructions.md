@@ -12,8 +12,8 @@
    - Click **Set Up Folder**.
 
 3. **Install the Modpack**  
-   - Use the search bar to find:  
-     **Prominence II: Hasturian Era** by *ElocinDev*  
+   - Use the search bar to find the corresponding modpack.
+   - In the modpack page, find the required version.
    - Click **Install**.
 
 4. **Adjust Memory Settings**  
@@ -43,7 +43,7 @@
 2. **Log In with provided IAM User Credentials**  
 
 3. **Start the Server Instance**  
-   - In the **EC2 Instances** page, select the Minecraft server.
+   - In the **EC2 Instances** page, select the modpack's corresponding Minecraft server.
    - Right-click and choose **Start Instance**.  
    *(Skip this step if the server is already running.)*
 
