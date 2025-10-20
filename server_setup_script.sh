@@ -428,7 +428,7 @@ give_proper_permissions() {
 create_minecraft_service() {
 	# === CREATE minecraft.service ===
 	
-	sudo tee /etc/systemd/system/minecraft.service > /dev/null <<EOF
+	sudo tee /etc/systemd/system/minecraft.service > /dev/null <<'EOF'
 [Unit]
 Description=Minecraft Server on start up
 Requires=network-online.target
@@ -440,14 +440,13 @@ StartLimitIntervalSec=60
 Type=forking
 PermissionsStartOnly=true
 User=minecraft
-WorkingDirectory=${SERVER_DIRECTORY}/data
 EnvironmentFile=/etc/minecraft.env
-ExecStartPre=/bin/sh -c "echo madvise > /sys/kernel/mm/transparent_hugepage/enabled"
-ExecStartPre=/bin/sh -c "echo madvise > /sys/kernel/mm/transparent_hugepage/defrag"
-ExecStartPre=/bin/sh -c '[ -f "${SERVER_DIRECTORY}/data/${SERVER_FILE}" ] || [ -f "${SERVER_FILE}" ]'
-ExecStartPre=/usr/bin/test -r /etc/minecraft.env
-ExecStart=${SERVER_DIRECTORY}/scripts/start_script.sh
-ExecStop=${SERVER_DIRECTORY}/scripts/stop_script.sh
+ExecStartPre=/bin/sh -c 'test -r /etc/minecraft.env'
+ExecStartPre=/bin/sh -c 'test -f "${SERVER_DIRECTORY}/data/${SERVER_FILE}"'
+ExecStartPre=/bin/sh -c 'echo madvise > /sys/kernel/mm/transparent_hugepage/enabled || true'
+ExecStartPre=/bin/sh -c 'echo madvise > /sys/kernel/mm/transparent_hugepage/defrag || true'
+ExecStart=/bin/sh -c 'cd "${SERVER_DIRECTORY}" && ./scripts/start_script.sh'
+ExecStop=/bin/sh -c 'cd "${SERVER_DIRECTORY}" && ./scripts/stop_script.sh'
 ExecStopPost=/bin/bash -c 'screen -S minecraft -X quit || true'
 TimeoutStopSec=300
 Restart=on-failure
@@ -467,13 +466,14 @@ create_check_idle_service_timer() {
 	# === CREATE SYSTEMD SERVICE AND TIMER FOR IDLE CHECK ===
 
 	# minecraft-idle-check.service
-	sudo tee /etc/systemd/system/minecraft-idle-check.service > /dev/null <<EOF
+	sudo tee /etc/systemd/system/minecraft-idle-check.service > /dev/null <<'EOF'
 [Unit]
 Description=Check if Minecraft server is idle
 
 [Service]
 Type=oneshot
-ExecStart=${SERVER_DIRECTORY}/scripts/idle_check_script.sh
+EnvironmentFile=/etc/minecraft.env
+ExecStart=/bin/sh -c 'cd "${SERVER_DIRECTORY}" && ./scripts/idle_check_script.sh'
 SyslogIdentifier=minecraft-idle-check
 EOF
 
